@@ -1,5 +1,6 @@
 import streamlit as st
 from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
 import pandas as pd
 import tempfile
 import os
@@ -17,7 +18,7 @@ def get_spark_session():
 spark = get_spark_session()
 
 st.title("Big Data Framework Analytics Engine (Apache Spark & PySpark)")
-st.markdown("Demonstrating distributed big data processing, schema analysis, and SQL querying using the **Apache Spark Framework**.")
+st.markdown("Demonstrating distributed big data processing, schema analysis, SQL querying, and script generation using the **Apache Spark Framework**.")
 
 st.sidebar.header("Data Management")
 uploaded_file = st.sidebar.file_uploader("Upload a dataset (CSV or Parquet)", type=["csv", "parquet", "pq"])
@@ -42,7 +43,7 @@ if uploaded_file is not None:
         st.success("Dataset loaded successfully and registered as a Spark SQL table (`dataset_table`)!")
 
         # --- Tabbed Navigation ---
-        tab1, tab2, tab3 = st.tabs(["Overview & Schema", "Visual Analytics", "Spark SQL Console"])
+        tab1, tab2, tab3, tab4 = st.tabs(["Overview & Schema", "Visual Analytics", "Spark SQL Console", "SQL Insert Generator"])
 
         # Tab 1: Overview & Schema
         with tab1:
@@ -86,13 +87,11 @@ if uploaded_file is not None:
                         st.write(f"**Trend View of {selected_num}**")
                         st.line_chart(display_df[selected_num])
 
-        # Tab 3: Spark SQL Query Console (New Feature!)
+        # Tab 3: Spark SQL Query Console
         with tab3:
             st.subheader("PySpark SQL Query Console")
             st.markdown(f"Write and execute standard SQL queries directly against your uploaded dataset using the table name: **`{table_name}`**")
             
-            st.info(f"💡 **Tip:** Your table name is `dataset_table`. Example: `SELECT * FROM dataset_table LIMIT 5`")
-
             default_query = f"SELECT * FROM {table_name} LIMIT 10"
             query = st.text_area("Enter Spark SQL Query:", value=default_query, height=100)
 
@@ -105,6 +104,41 @@ if uploaded_file is not None:
                     st.dataframe(result_pd)
                 except Exception as sql_err:
                     st.error(f"SQL Error: {sql_err}")
+
+        # Tab 4: SQL Insert Generator (New Feature!)
+        with tab4:
+            st.subheader("SQL Insert Query Generator")
+            st.markdown("Automatically generate SQL `INSERT INTO` statements from the rows inside your uploaded dataset.")
+            
+            limit_rows = st.slider("Select number of rows to generate insert queries for:", 5, 100, 15)
+
+            if st.button("Generate INSERT Queries"):
+                try:
+                    sample_pd = df.limit(limit_rows).toPandas()
+                    columns_list = list(sample_pd.columns)
+                    col_names_str = ", ".join([f"`{c}`" for c in columns_list])
+                    
+                    insert_queries = []
+                    for _, row in sample_pd.iterrows():
+                        vals = []
+                        for val in row:
+                            if pd.isna(val):
+                                vals.append("NULL")
+                            elif isinstance(val, (int, float)):
+                                vals.append(str(val))
+                            else:
+                                escaped_val = str(val).replace("'", "''")
+                                vals.append(f"'{escaped_val}'")
+                        vals_str = ", ".join(vals)
+                        query = f"INSERT INTO {table_name} ({col_names_str}) VALUES ({vals_str});"
+                        insert_queries.append(query)
+                    
+                    full_sql_script = "\n".join(insert_queries)
+                    st.success(f"Successfully generated {len(insert_queries)} SQL Insert statements!")
+                    st.text_area("Generated SQL Script:", value=full_sql_script, height=220)
+                    st.download_button("Download SQL Script File", full_sql_script, file_name="generated_inserts.sql", mime="text/plain")
+                except Exception as gen_err:
+                    st.error(f"Error generating queries: {gen_err}")
 
     except Exception as e:
         st.error(f"Error processing file with PySpark: {e}")
