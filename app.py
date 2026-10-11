@@ -1,7 +1,6 @@
 import streamlit as st
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
-import plotly.express as px
 import pandas as pd
 import tempfile
 import os
@@ -20,22 +19,6 @@ spark = get_spark_session()
 
 st.title("Big Data Framework Analytics Engine (Apache Spark & PySpark)")
 st.markdown("Demonstrating distributed big data processing and aggregation using the **Apache Spark Framework**.")
-
-# Custom CSS to improve layout
-st.markdown("""
-    <style>
-    .metric-card {
-        background-color: #f0f2f6;
-        padding: 20px;
-        border-radius: 10px;
-        border: 1px solid #d1d1d1;
-    }
-    .stPlotlyChart {
-        margin-top: 20px;
-        margin-bottom: 20px;
-    }
-    </style>
-""", unsafe_allow_html=True)
 
 st.sidebar.header("Data Management")
 uploaded_file = st.sidebar.file_uploader("Upload a dataset (CSV or Parquet)", type=["csv", "parquet", "pq"])
@@ -58,7 +41,7 @@ if uploaded_file is not None:
         # --- Tabbed Navigation ---
         tab1, tab2 = st.tabs(["Overview & Schema", "Visual Analytics"])
 
-        # Tab 1: Original View (Metrics and Schema)
+        # Tab 1: Overview & Schema
         with tab1:
             st.subheader("Dataset Overview & Metrics")
             total_rows = df.count()
@@ -77,16 +60,14 @@ if uploaded_file is not None:
             schema_info = [{"Column": field.name, "Type": field.dataType.simpleString()} for field in df.schema.fields]
             st.table(schema_info)
 
-        # Tab 2: Visual Analytics (New Feature)
+        # Tab 2: Visual Analytics
         with tab2:
             st.subheader("Interactive Visual Analytics")
             
             if total_rows > 100000:
-                st.warning(f"Large dataset detected ({total_rows} rows). Visualizations will be based on a random sample of 10,000 rows for performance.")
                 display_df = df.sample(fraction=0.1, seed=42).limit(10000).toPandas()
             else:
-                st.info(f"Processing entire dataset ({total_rows} rows).")
-                display_df = df.toPandas() # Convert entire small-to-medium DF for Plotly
+                display_df = df.toPandas()
 
             if display_df.empty:
                 st.error("Dataset appears to be empty or failed sampling.")
@@ -97,57 +78,29 @@ if uploaded_file is not None:
 
                 col1, col2 = st.columns(2)
 
-                # 1. Bar Chart: Categorical Distribution (like Shivam's example)
+                # 1. Native Bar Chart for Categorical Distribution
                 with col1:
                     if cat_columns:
                         selected_cat = st.selectbox("Select Categorical Column", cat_columns, key="cat_sel")
-                        
-                        # Use PySpark to count values, then convert to small Pandas DF for Plotly
                         spark_counts = df.groupBy(selected_cat).count().orderBy(F.col("count").desc()).limit(15)
-                        cat_data = spark_counts.toPandas()
-
-                        fig_bar = px.bar(
-                            cat_data, 
-                            x=selected_cat, 
-                            y='count', 
-                            title=f"Distribution of {selected_cat} (Top 15)",
-                            labels={selected_cat: selected_cat, 'count': 'Record Count'}
-                        )
-                        fig_bar.update_layout(xaxis_tickangle=-45)
-                        st.plotly_chart(fig_bar, use_container_width=True)
+                        cat_data = spark_counts.toPandas().set_index(selected_cat)
+                        st.write(f"**Distribution of {selected_cat}**")
+                        st.bar_chart(cat_data)
                     else:
                         st.write("No categorical columns available for a bar chart.")
 
-                # 2. Histogram: Numerical Distribution (like Shivam's example)
+                # 2. Native Line Chart for Numerical Trend
                 with col2:
                     if num_columns:
                         selected_num = st.selectbox("Select Numerical Column", num_columns, key="num_sel")
-                        fig_hist = px.histogram(
-                            display_df, 
-                            x=selected_num, 
-                            nbins=30, 
-                            title=f"Histogram distribution of {selected_num}"
-                        )
-                        st.plotly_chart(fig_hist, use_container_width=True)
+                        st.write(f"**Trend View of {selected_num}**")
+                        st.line_chart(display_df[selected_num])
                     else:
-                        st.write("No numerical columns available for a histogram.")
-
-                # 3. Correlation Heatmap (More complex big data overview)
-                if len(num_columns) > 1:
-                    st.subheader("Numerical Correlation Heatmap")
-                    correlation_matrix = display_df[num_columns].corr()
-                    fig_heatmap = px.imshow(
-                        correlation_matrix,
-                        text_auto=True,
-                        aspect="auto",
-                        title="Numerical Feature Correlation Matrix"
-                    )
-                    st.plotly_chart(fig_heatmap, use_container_width=True)
+                        st.write("No numerical columns available for charting.")
 
     except Exception as e:
         st.error(f"Error processing file with PySpark: {e}")
     finally:
-        # Clean up temporary file
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
 
